@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: fantasy-f1-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-fantasy_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fantasy_password}
+      POSTGRES_DB: ${DB_NAME:-fantasy_f1_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fantasy_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fantasy-f1-network
+
+  # Redis Cache Service
+  redis:
+    image: redis:7-alpine
+    container_name: fantasy-f1-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fantasy-f1-network
+
+  # FastAPI Application Service
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fantasy-f1-api
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-fantasy_user}:${DB_PASSWORD:-fantasy_password}@postgres:5432/${DB_NAME:-fantasy_f1_db}
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - fantasy-f1-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  fantasy-f1-network:
+    driver: bridge
